@@ -17,4 +17,4 @@ This React-based dashboard accepts a Jira CSV export to calculate sprint velocit
    - **Charts**: Bar/line chart showing velocity per sprint over time.
 
 **Demo Video**  
-[Watch the demo on Loom](https://www.loom.com/share/4c3445091c43440eb42e2db543afe47c)
+[![Watch the Demo](https://cdn.loom.com/sessions/thumbnails/4c3445091c43440eb42e2db543afe47c-7f3c15c2f5c06792-full-play.gif)](https://www.loom.com/share/4c3445091c43440eb42e2db543afe47c)
