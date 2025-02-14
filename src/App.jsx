@@ -255,7 +255,7 @@ function App() {
                 <p className="text-gray-400 text-sm leading-relaxed">
                   Track completed story points across sprints. Each bar shows
                   work completed when tickets move to 'Done'. Click the cards
-                  above to filter by engineering area.
+                  below to filter by engineering area.
                 </p>
               </div>
             </div>
