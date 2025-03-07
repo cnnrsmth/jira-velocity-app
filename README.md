@@ -2,9 +2,6 @@
 
 **Overview**
 
-Try it:
-https://cnnrsmth.github.io/jira-velocity-app/
-
 This React-based dashboard accepts a Jira CSV export to calculate sprint velocity:
 
 - Determines the final sprint for "Done" tickets.
