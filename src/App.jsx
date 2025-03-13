@@ -188,6 +188,9 @@ function App() {
     // Track ticket counts by sprint and area
     const ticketCountBySprintAndArea = {};
 
+    // Track assignees by area and sprint
+    const assigneesByAreaAndSprint = {};
+
     // Process each row
     results.data.slice(1).forEach((row) => {
       if (!row || row.length < headers.length) return; // Skip empty or malformed rows
@@ -206,6 +209,10 @@ function App() {
       }
 
       if (!completionSprint) return; // Skip if no sprint found
+
+      // Get assignee
+      const assigneeIdx = headers.indexOf("Assignee");
+      const assignee = assigneeIdx >= 0 ? row[assigneeIdx] : null;
 
       // Check for Engineering Area across multiple possible columns
       let area = null;
@@ -251,6 +258,19 @@ function App() {
           total: 0,
           byArea: {},
         };
+      }
+
+      // Initialize assignee tracking if needed
+      if (!assigneesByAreaAndSprint[completionSprint]) {
+        assigneesByAreaAndSprint[completionSprint] = {};
+      }
+      if (!assigneesByAreaAndSprint[completionSprint][area]) {
+        assigneesByAreaAndSprint[completionSprint][area] = new Set();
+      }
+
+      // Add assignee to tracking if available
+      if (assignee) {
+        assigneesByAreaAndSprint[completionSprint][area].add(assignee);
       }
 
       // Initialize area data if needed (for both points and tickets)
@@ -303,6 +323,25 @@ function App() {
         return getSprintNumber(a.sprint) - getSprintNumber(b.sprint);
       });
 
+    // Prepare assignee data - collect all assignees by area across all sprints
+    const assigneesByArea = {};
+    engineeringAreas.forEach((area) => {
+      assigneesByArea[area] = new Set();
+    });
+
+    Object.values(assigneesByAreaAndSprint).forEach((sprintData) => {
+      Object.entries(sprintData).forEach(([area, assignees]) => {
+        assignees.forEach((assignee) => {
+          assigneesByArea[area].add(assignee);
+        });
+      });
+    });
+
+    // Convert Sets to Arrays for easier use
+    Object.keys(assigneesByArea).forEach((area) => {
+      assigneesByArea[area] = Array.from(assigneesByArea[area]);
+    });
+
     // Calculate averages
     const sprintCount = chartData.length;
     const averageVelocity =
@@ -334,6 +373,8 @@ function App() {
       averageByArea,
       engineeringAreas: Array.from(engineeringAreas),
       ticketCountByArea,
+      assigneesByAreaAndSprint,
+      assigneesByArea,
     };
   };
 
@@ -419,6 +460,7 @@ function App() {
         averageVelocity: 0,
         averageByArea: {},
         ticketCountByArea: {},
+        filteredAssigneesByArea: {},
       };
 
     // Calculate the actual sprint numbers from the percentage range
@@ -443,6 +485,32 @@ function App() {
       return sprintNum >= sprintMin && sprintNum <= sprintMax;
     });
 
+    // Get the filtered sprint names
+    const filteredSprintNames = filteredChartData.map((item) => item.sprint);
+
+    // Filter assignees based on the sprint range
+    const filteredAssigneesByArea = {};
+    data.engineeringAreas.forEach((area) => {
+      filteredAssigneesByArea[area] = new Set();
+    });
+
+    // Only include assignees who contributed in the filtered sprints
+    filteredSprintNames.forEach((sprintName) => {
+      const sprintData = data.assigneesByAreaAndSprint[sprintName];
+      if (sprintData) {
+        Object.entries(sprintData).forEach(([area, assignees]) => {
+          assignees.forEach((assignee) => {
+            filteredAssigneesByArea[area].add(assignee);
+          });
+        });
+      }
+    });
+
+    // Convert Sets to Arrays
+    Object.keys(filteredAssigneesByArea).forEach((area) => {
+      filteredAssigneesByArea[area] = Array.from(filteredAssigneesByArea[area]);
+    });
+
     if (filteredChartData.length === 0)
       return {
         chartData: filteredChartData,
@@ -453,6 +521,7 @@ function App() {
         ticketCountByArea: Object.fromEntries(
           data.engineeringAreas.map((area) => [area, 0])
         ),
+        filteredAssigneesByArea,
       };
 
     // Recalculate averages
@@ -483,6 +552,7 @@ function App() {
       averageVelocity,
       averageByArea,
       ticketCountByArea,
+      filteredAssigneesByArea,
     };
   };
 
@@ -492,6 +562,7 @@ function App() {
     averageVelocity,
     averageByArea,
     ticketCountByArea,
+    filteredAssigneesByArea,
   } = filteredData;
 
   const getFilteredChartDataForDisplay = () => {
@@ -652,6 +723,175 @@ function App() {
     return baseColors[area] || generateColorForArea(area, index);
   };
 
+  // Create a component for the Avatars section
+  const AvatarGroup = ({ assignees, maxDisplay = 5 }) => {
+    if (!assignees || assignees.length === 0) {
+      return null;
+    }
+
+    const totalAssignees = assignees.length;
+    const displayedAssignees = assignees.slice(0, maxDisplay);
+    const remainingAssignees = assignees.slice(maxDisplay);
+    const remainingCount = totalAssignees - maxDisplay;
+
+    // Function to get the initial from name
+    const getInitial = (name) => {
+      return name ? name.trim().charAt(0).toUpperCase() : "?";
+    };
+
+    // Function to get a deterministic color based on name
+    const getAvatarColor = (name) => {
+      const colors = [
+        "bg-blue-500",
+        "bg-purple-500",
+        "bg-green-500",
+        "bg-yellow-500",
+        "bg-pink-500",
+        "bg-indigo-500",
+        "bg-red-500",
+        "bg-teal-500",
+      ];
+
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+
+      return colors[Math.abs(hash) % colors.length];
+    };
+
+    // Custom tooltip component
+    const Tooltip = ({ content, children }) => {
+      const [showTooltip, setShowTooltip] = useState(false);
+      const [tooltipPosition, setTooltipPosition] = useState({
+        top: 0,
+        left: 0,
+      });
+      const childRef = useRef(null);
+
+      // Calculate position when tooltip visibility changes
+      useEffect(() => {
+        if (showTooltip && childRef.current) {
+          const rect = childRef.current.getBoundingClientRect();
+          setTooltipPosition({
+            top: rect.top - 5, // Position above the avatar
+            left: rect.left + rect.width / 2,
+          });
+        }
+      }, [showTooltip]);
+
+      return (
+        <div
+          className="relative group"
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          onFocus={() => setShowTooltip(true)}
+          onBlur={() => setShowTooltip(false)}
+          ref={childRef}
+        >
+          {children}
+
+          {showTooltip && (
+            <div
+              className="fixed z-[999] transform -translate-x-1/2 -translate-y-full"
+              style={{
+                top: `${tooltipPosition.top}px`,
+                left: `${tooltipPosition.left}px`,
+                marginBottom: "10px",
+              }}
+            >
+              <div className="bg-gray-900 text-white text-xs rounded py-1 px-2 shadow-lg border border-gray-700 whitespace-nowrap">
+                {content}
+              </div>
+              <div className="w-2 h-2 bg-gray-900 transform rotate-45 absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-r border-b border-gray-700"></div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // Multiple names tooltip component
+    const MultiTooltip = ({ names }) => {
+      const [showTooltip, setShowTooltip] = useState(false);
+      const [tooltipPosition, setTooltipPosition] = useState({
+        top: 0,
+        left: 0,
+      });
+      const childRef = useRef(null);
+
+      // Calculate position when tooltip visibility changes
+      useEffect(() => {
+        if (showTooltip && childRef.current) {
+          const rect = childRef.current.getBoundingClientRect();
+          setTooltipPosition({
+            top: rect.bottom + 5, // Position below the +X badge
+            left: rect.left,
+          });
+        }
+      }, [showTooltip]);
+
+      return (
+        <div
+          className="relative"
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          onFocus={() => setShowTooltip(true)}
+          onBlur={() => setShowTooltip(false)}
+          ref={childRef}
+        >
+          <div className="relative z-0 inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-gray-800 bg-gray-600">
+            <span className="text-xs font-medium text-white">
+              +{remainingCount}
+            </span>
+          </div>
+
+          {showTooltip && (
+            <div
+              className="fixed z-[999]"
+              style={{
+                top: `${tooltipPosition.top}px`,
+                left: `${tooltipPosition.left}px`,
+              }}
+            >
+              <div className="bg-gray-900 text-white text-xs rounded py-2 px-3 shadow-lg border border-gray-700">
+                <p className="font-semibold mb-2">Other contributors:</p>
+                <ul className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                  {names.map((name, idx) => (
+                    <li key={idx} className="whitespace-nowrap">
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="w-2 h-2 bg-gray-900 transform rotate-45 absolute -top-1 left-4 border-l border-t border-gray-700"></div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div className="flex flex-wrap -space-x-2 mt-3">
+        {displayedAssignees.map((assignee, index) => (
+          <Tooltip key={index} content={assignee}>
+            <div
+              className={`relative z-10 inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-gray-800 ${getAvatarColor(
+                assignee
+              )} transition-transform hover:scale-110`}
+              style={{ zIndex: 20 - index }}
+            >
+              <span className="text-xs font-medium text-white">
+                {getInitial(assignee)}
+              </span>
+            </div>
+          </Tooltip>
+        ))}
+
+        {remainingCount > 0 && <MultiTooltip names={remainingAssignees} />}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-7xl mx-auto">
@@ -806,6 +1046,21 @@ function App() {
                         </p>
                       </div>
                     </div>
+
+                    {/* Contributors section */}
+                    {filteredAssigneesByArea &&
+                      filteredAssigneesByArea[area] &&
+                      filteredAssigneesByArea[area].length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                          <p className="text-xs text-gray-400 mb-1">
+                            Contributors
+                          </p>
+                          <AvatarGroup
+                            assignees={filteredAssigneesByArea[area]}
+                            maxDisplay={7}
+                          />
+                        </div>
+                      )}
                   </div>
                 </div>
               ))}
