@@ -908,6 +908,31 @@ function App() {
       const [showList, setShowList] = useState(false);
       const listRef = useRef(null);
       const triggerRef = useRef(null);
+      const [position, setPosition] = useState({ top: 0, left: 0 });
+
+      // Update position when showing list
+      useEffect(() => {
+        if (showList && triggerRef.current) {
+          const rect = triggerRef.current.getBoundingClientRect();
+          const left = rect.left + rect.width / 2;
+          const top = rect.top - 12;
+
+          // Ensure modal stays within viewport
+          const modalWidth = 240; // min-w-[240px]
+          const modalHeight = 300; // max-h-[300px]
+
+          const adjustedLeft = Math.min(
+            Math.max(modalWidth / 2, left),
+            window.innerWidth - modalWidth / 2
+          );
+          const adjustedTop = Math.min(
+            top,
+            window.innerHeight - modalHeight - 12
+          );
+
+          setPosition({ left: adjustedLeft, top: adjustedTop });
+        }
+      }, [showList]);
 
       // Handle clicking outside the list
       useEffect(() => {
@@ -918,16 +943,20 @@ function App() {
             triggerRef.current &&
             !triggerRef.current.contains(e.target)
           ) {
+            e.preventDefault();
+            e.stopPropagation();
             setShowList(false);
           }
         };
 
         if (showList) {
-          document.addEventListener("mousedown", handleClickOutside);
+          document.addEventListener("mousedown", handleClickOutside, true);
+          document.addEventListener("touchstart", handleClickOutside, true);
         }
 
         return () => {
-          document.removeEventListener("mousedown", handleClickOutside);
+          document.removeEventListener("mousedown", handleClickOutside, true);
+          document.removeEventListener("touchstart", handleClickOutside, true);
         };
       }, [showList]);
 
@@ -950,34 +979,79 @@ function App() {
             </span>
           </button>
 
-          {/* List Overlay */}
           {showList && (
-            <>
-              {/* Semi-transparent backdrop */}
+            <div
+              className="fixed inset-0 z-[99998]"
+              aria-modal="true"
+              role="dialog"
+              onMouseDown={(e) => {
+                // Prevent any mousedown events from reaching elements below
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onMouseUp={(e) => {
+                // Prevent any mouseup events from reaching elements below
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchStart={(e) => {
+                // Prevent any touch events from reaching elements below
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchEnd={(e) => {
+                // Prevent any touch events from reaching elements below
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            >
+              {/* Backdrop */}
               <div
-                className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[99998]"
-                onClick={() => setShowList(false)}
+                className="fixed inset-0 bg-black/20 backdrop-blur-sm"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowList(false);
+                }}
+                style={{ touchAction: "none" }}
               />
 
-              {/* Contributors List */}
+              {/* Modal */}
               <div
                 ref={listRef}
                 className="fixed z-[99999]"
                 style={{
-                  left:
-                    triggerRef.current?.getBoundingClientRect().left +
-                    (triggerRef.current?.offsetWidth || 0) / 2,
-                  top: triggerRef.current?.getBoundingClientRect().top - 12,
+                  left: `${position.left}px`,
+                  top: `${position.top}px`,
                   transform: "translateX(-50%)",
+                  touchAction: "none",
                 }}
               >
-                <div className="bg-gray-800 text-white rounded-lg shadow-xl border border-gray-700 p-3 min-w-[240px]">
+                <div
+                  className="bg-gray-800 text-white rounded-lg shadow-xl border border-gray-700 p-3 min-w-[240px]"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
                   <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-700">
                     <h3 className="font-semibold text-sm">
                       Other Contributors
                     </h3>
                     <button
-                      onClick={() => setShowList(false)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowList(false);
+                      }}
                       className="text-gray-400 hover:text-white"
                     >
                       <svg
@@ -1003,6 +1077,7 @@ function App() {
                           key={idx}
                           className="flex items-center px-2 py-2 rounded hover:bg-gray-700/50 cursor-pointer group"
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             handleAssigneeClick(name);
                             setShowList(false);
@@ -1018,7 +1093,7 @@ function App() {
                             </span>
                           </div>
                           <span className="flex-grow text-sm group-hover:text-white transition-colors">
-                            {name} ({assigneeTicketCounts[name]} tickets)
+                            {name}
                           </span>
                           {selectedAssignee === name && (
                             <svg
@@ -1039,7 +1114,7 @@ function App() {
                   </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       );
