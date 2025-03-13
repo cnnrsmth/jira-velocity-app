@@ -243,7 +243,7 @@ function App() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-12">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
-            Thor Squad Velocity
+            Squad Velocity
           </h1>
           <div className="mt-4 bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700">
             <div className="flex items-start space-x-2">
