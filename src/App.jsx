@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Papa from "papaparse";
 import {
   BarChart,
@@ -9,6 +9,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Line,
+  ComposedChart,
+  Scatter,
+  ZAxis,
 } from "recharts";
 
 // Icons for each area (you can replace these with your preferred icons)
@@ -54,6 +58,9 @@ function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedAreas, setSelectedAreas] = useState(new Set(["overall"]));
+  const [displayMode, setDisplayMode] = useState("points"); // "points" or "tickets"
+  const [sprintRange, setSprintRange] = useState([0, 100]); // [min, max] as percentages
+  const [sprintNumbers, setSprintNumbers] = useState([]);
 
   const validateColumns = (headers) => {
     const requiredColumns = {
@@ -89,6 +96,9 @@ function App() {
 
     // Initialize velocity data structure
     const velocityBySprintAndArea = {};
+
+    // Track ticket counts by sprint and area
+    const ticketCountBySprintAndArea = {};
 
     // Process each row
     results.data.slice(1).forEach((row) => {
@@ -127,23 +137,50 @@ function App() {
         };
       }
 
+      // Initialize ticket count data if needed
+      if (!ticketCountBySprintAndArea[completionSprint]) {
+        ticketCountBySprintAndArea[completionSprint] = {
+          total: 0,
+          byArea: {},
+        };
+      }
+
       // Initialize area data if needed
       if (!velocityBySprintAndArea[completionSprint].byArea[area]) {
         velocityBySprintAndArea[completionSprint].byArea[area] = 0;
+        ticketCountBySprintAndArea[completionSprint].byArea[area] = 0;
       }
 
       // Add points
       velocityBySprintAndArea[completionSprint].byArea[area] += points;
       velocityBySprintAndArea[completionSprint].total += points;
+
+      // Increment ticket count
+      ticketCountBySprintAndArea[completionSprint].byArea[area] += 1;
+      ticketCountBySprintAndArea[completionSprint].total += 1;
     });
 
     // Convert to chart data format
     const chartData = Object.entries(velocityBySprintAndArea)
-      .map(([sprint, data]) => ({
-        sprint,
-        total: data.total,
-        ...data.byArea,
-      }))
+      .map(([sprint, data]) => {
+        const ticketData = ticketCountBySprintAndArea[sprint] || {
+          total: 0,
+          byArea: {},
+        };
+        const result = {
+          sprint,
+          total: data.total,
+          totalTickets: ticketData.total,
+          ...data.byArea,
+        };
+
+        // Add ticket counts with a suffix to distinguish them
+        engineeringAreas.forEach((area) => {
+          result[`${area}Tickets`] = ticketData.byArea[area] || 0;
+        });
+
+        return result;
+      })
       .sort((a, b) => {
         const getSprintNumber = (sprint) => {
           const match = sprint.match(/Sprint (\d+)/);
@@ -160,11 +197,20 @@ function App() {
         : 0;
 
     const averageByArea = {};
+    const ticketCountByArea = {};
     engineeringAreas.forEach((area) => {
       averageByArea[area] =
         sprintCount > 0
           ? chartData.reduce((sum, sprint) => sum + (sprint[area] || 0), 0) /
             sprintCount
+          : 0;
+
+      ticketCountByArea[area] =
+        sprintCount > 0
+          ? chartData.reduce(
+              (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
+              0
+            )
           : 0;
     });
 
@@ -173,6 +219,7 @@ function App() {
       averageVelocity,
       averageByArea,
       engineeringAreas: Array.from(engineeringAreas),
+      ticketCountByArea,
     };
   };
 
@@ -225,18 +272,186 @@ function App() {
     setSelectedAreas(newSelected);
   };
 
-  const getFilteredChartData = () => {
-    if (!data) return [];
-    if (selectedAreas.has("overall")) return data.chartData;
-
-    return data.chartData.map((sprint) => {
-      const filteredSprint = { sprint: sprint.sprint };
-      selectedAreas.forEach((area) => {
-        filteredSprint[area] = sprint[area] || 0;
-      });
-      return filteredSprint;
-    });
+  const toggleDisplayMode = () => {
+    setDisplayMode(displayMode === "points" ? "tickets" : "points");
   };
+
+  useEffect(() => {
+    if (data) {
+      // Initialize the sprint range to include all sprints
+      setSprintRange([0, 100]);
+
+      // Extract sprint numbers for the slider labels
+      const sprintNums = data.chartData
+        .map((sprint) => {
+          const match = sprint.sprint.match(/Sprint (\d+)/);
+          return match ? parseInt(match[1]) : 0;
+        })
+        .sort((a, b) => a - b);
+
+      setSprintNumbers(sprintNums);
+    }
+  }, [data]);
+
+  const getSprintNumber = (sprint) => {
+    const match = sprint.match(/Sprint (\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  };
+
+  const getFilteredData = () => {
+    if (!data)
+      return {
+        chartData: [],
+        averageVelocity: 0,
+        averageByArea: {},
+        ticketCountByArea: {},
+      };
+
+    // Calculate the actual sprint numbers from the percentage range
+    const minPercentage = sprintRange[0];
+    const maxPercentage = sprintRange[1];
+
+    const sprintMin = Math.floor(
+      sprintNumbers[0] +
+        (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+          (minPercentage / 100)
+    );
+
+    const sprintMax = Math.ceil(
+      sprintNumbers[0] +
+        (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+          (maxPercentage / 100)
+    );
+
+    // Filter data based on sprint range
+    const filteredChartData = data.chartData.filter((sprint) => {
+      const sprintNum = getSprintNumber(sprint.sprint);
+      return sprintNum >= sprintMin && sprintNum <= sprintMax;
+    });
+
+    if (filteredChartData.length === 0)
+      return {
+        chartData: filteredChartData,
+        averageVelocity: 0,
+        averageByArea: Object.fromEntries(
+          data.engineeringAreas.map((area) => [area, 0])
+        ),
+        ticketCountByArea: Object.fromEntries(
+          data.engineeringAreas.map((area) => [area, 0])
+        ),
+      };
+
+    // Recalculate averages
+    const averageVelocity =
+      filteredChartData.reduce((sum, sprint) => sum + sprint.total, 0) /
+      filteredChartData.length;
+
+    const averageByArea = {};
+    const ticketCountByArea = {};
+
+    data.engineeringAreas.forEach((area) => {
+      // Calculate average points per sprint for this area
+      averageByArea[area] =
+        filteredChartData.reduce(
+          (sum, sprint) => sum + (sprint[area] || 0),
+          0
+        ) / filteredChartData.length;
+
+      // Calculate total tickets for this area
+      ticketCountByArea[area] = filteredChartData.reduce(
+        (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
+        0
+      );
+    });
+
+    return {
+      chartData: filteredChartData,
+      averageVelocity,
+      averageByArea,
+      ticketCountByArea,
+    };
+  };
+
+  const filteredData = getFilteredData();
+  const {
+    chartData: filteredChartData,
+    averageVelocity,
+    averageByArea,
+    ticketCountByArea,
+  } = filteredData;
+
+  const getFilteredChartDataForDisplay = () => {
+    if (!data || filteredChartData.length === 0) return [];
+
+    const dataToFilter = filteredChartData;
+
+    const filteredDisplayData = selectedAreas.has("overall")
+      ? dataToFilter
+      : dataToFilter.map((sprint) => {
+          const filteredSprint = { sprint: sprint.sprint };
+          selectedAreas.forEach((area) => {
+            filteredSprint[area] = sprint[area] || 0;
+            filteredSprint[`${area}Tickets`] = sprint[`${area}Tickets`] || 0;
+          });
+          return filteredSprint;
+        });
+
+    // If we're displaying tickets, transform the data
+    if (displayMode === "tickets") {
+      return filteredDisplayData.map((sprint) => {
+        const ticketSprint = { sprint: sprint.sprint };
+
+        // For all engineering areas being displayed
+        const areasToInclude = selectedAreas.has("overall")
+          ? data.engineeringAreas
+          : Array.from(selectedAreas);
+
+        areasToInclude.forEach((area) => {
+          // Use the ticket count as the primary value
+          ticketSprint[area] = sprint[`${area}Tickets`] || 0;
+        });
+
+        return ticketSprint;
+      });
+    }
+
+    return filteredDisplayData;
+  };
+
+  const handleRangeChange = (e, index) => {
+    const newValue = parseInt(e.target.value);
+
+    let newRange = [...sprintRange];
+
+    if (index === 0) {
+      // Updating minimum value
+      newRange[0] = Math.min(newValue, newRange[1] - 5);
+    } else {
+      // Updating maximum value
+      newRange[1] = Math.max(newValue, newRange[0] + 5);
+    }
+
+    setSprintRange(newRange);
+  };
+
+  // Get the actual min and max sprint numbers from the percentage range
+  const displayMin =
+    sprintNumbers.length > 0
+      ? Math.floor(
+          sprintNumbers[0] +
+            (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+              (sprintRange[0] / 100)
+        )
+      : 0;
+
+  const displayMax =
+    sprintNumbers.length > 0
+      ? Math.ceil(
+          sprintNumbers[0] +
+            (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+              (sprintRange[1] / 100)
+        )
+      : 0;
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
@@ -311,16 +526,40 @@ function App() {
                     </div>
                     <h3 className="text-gray-400 text-sm">Overall Velocity</h3>
                   </div>
-                  <p className="text-3xl font-bold">
-                    {data.averageVelocity.toFixed(1)}
-                  </p>
-                  <p className="text-gray-400 text-xs mt-1">
-                    Average per sprint
-                  </p>
+                  <div className="flex items-end justify-between">
+                    <div
+                      className={
+                        displayMode === "points" ? "opacity-100" : "opacity-60"
+                      }
+                    >
+                      <p className="text-3xl font-bold">
+                        {averageVelocity.toFixed(1)}
+                      </p>
+                      <p className="text-gray-400 text-xs mt-1">Avg points</p>
+                    </div>
+                    <div className="h-8 border-r border-gray-700 mx-1"></div>
+                    <div
+                      className={
+                        displayMode === "tickets" ? "opacity-100" : "opacity-60"
+                      }
+                    >
+                      <p className="text-xl font-semibold text-right">
+                        {filteredChartData.length > 0
+                          ? (
+                              filteredChartData.reduce(
+                                (sum, sprint) => sum + sprint.totalTickets,
+                                0
+                              ) / filteredChartData.length
+                            ).toFixed(1)
+                          : "0.0"}
+                      </p>
+                      <p className="text-gray-400 text-xs mt-1">Avg tickets</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {Object.entries(data.averageByArea).map(([area, average]) => (
+              {Object.entries(averageByArea).map(([area, average]) => (
                 <div
                   key={area}
                   onClick={() => toggleArea(area)}
@@ -339,24 +578,149 @@ function App() {
                       </div>
                       <h3 className="text-gray-400 text-sm">{area}</h3>
                     </div>
-                    <p className="text-3xl font-bold">{average.toFixed(1)}</p>
-                    <p className="text-gray-400 text-xs mt-1">Average points</p>
+                    <div className="flex items-end justify-between">
+                      <div
+                        className={
+                          displayMode === "points"
+                            ? "opacity-100"
+                            : "opacity-60"
+                        }
+                      >
+                        <p className="text-3xl font-bold">
+                          {average.toFixed(1)}
+                        </p>
+                        <p className="text-gray-400 text-xs mt-1">Avg points</p>
+                      </div>
+                      <div className="h-8 border-r border-gray-700 mx-1"></div>
+                      <div
+                        className={
+                          displayMode === "tickets"
+                            ? "opacity-100"
+                            : "opacity-60"
+                        }
+                      >
+                        <p className="text-xl font-semibold text-right">
+                          {ticketCountByArea[area]}
+                        </p>
+                        <p className="text-gray-400 text-xs mt-1">
+                          Total tickets
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="bg-gray-800 p-6 rounded-lg">
-              <div className="mb-6">
-                <h2 className="text-xl font-bold">Sprint Velocity Trend</h2>
-                <p className="text-gray-400 text-sm mt-1">
-                  Story points completed per sprint
-                </p>
+              <div className="mb-6 flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-bold">Sprint Velocity Trend</h2>
+                  <p className="text-gray-400 text-sm mt-1">
+                    {displayMode === "points"
+                      ? "Story points completed per sprint"
+                      : "Tickets completed per sprint"}
+                  </p>
+                </div>
+
+                {/* Toggle Switch */}
+                <div
+                  onClick={toggleDisplayMode}
+                  className="relative flex items-center h-8 cursor-pointer bg-gray-700 rounded-full w-48 p-1"
+                >
+                  <div
+                    className={`absolute transition-transform duration-300 ease-in-out h-6 w-24 bg-blue-600 rounded-full ${
+                      displayMode === "tickets"
+                        ? "translate-x-[5.5rem]"
+                        : "translate-x-0"
+                    }`}
+                  />
+                  <div
+                    className={`flex-1 flex justify-center items-center z-10 text-sm ${
+                      displayMode === "points" ? "text-white" : "text-gray-400"
+                    }`}
+                  >
+                    Story Points
+                  </div>
+                  <div
+                    className={`flex-1 flex justify-center items-center z-10 text-sm ${
+                      displayMode === "tickets" ? "text-white" : "text-gray-400"
+                    }`}
+                  >
+                    Tickets
+                  </div>
+                </div>
               </div>
+
+              {/* Sprint Range Slider */}
+              <div className="mb-8 mt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-gray-400">Sprint Range:</span>
+                  <span className="text-sm bg-gray-700 px-3 py-1 rounded-full">
+                    Sprint {displayMin} – {displayMax}
+                  </span>
+                </div>
+
+                <div className="relative h-12 flex items-center mb-2">
+                  {/* Track */}
+                  <div className="absolute w-full h-1 bg-gray-700 rounded-full"></div>
+
+                  {/* Range highlight */}
+                  <div
+                    className="absolute h-1 bg-blue-500 rounded-full"
+                    style={{
+                      left: `${sprintRange[0]}%`,
+                      width: `${sprintRange[1] - sprintRange[0]}%`,
+                    }}
+                  ></div>
+
+                  {/* Min & Max Thumb Labels */}
+                  <div
+                    className="absolute text-xs text-gray-400 -top-4 transform -translate-x-1/2"
+                    style={{ left: `${sprintRange[0]}%` }}
+                  >
+                    Min
+                  </div>
+                  <div
+                    className="absolute text-xs text-gray-400 -top-4 transform -translate-x-1/2"
+                    style={{ left: `${sprintRange[1]}%` }}
+                  >
+                    Max
+                  </div>
+
+                  {/* Min handle with z-index to be on top when needed */}
+                  <input
+                    type="range"
+                    min="0"
+                    max="95"
+                    value={sprintRange[0]}
+                    onChange={(e) => handleRangeChange(e, 0)}
+                    className="absolute w-full appearance-none bg-transparent z-20 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md"
+                  />
+
+                  {/* Max handle */}
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={sprintRange[1]}
+                    onChange={(e) => handleRangeChange(e, 1)}
+                    className="absolute w-full appearance-none bg-transparent z-10 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md"
+                  />
+                </div>
+
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Sprint {sprintNumbers[0] || 0}</span>
+                  <span>
+                    Sprint {sprintNumbers[sprintNumbers.length - 1] || 0}
+                  </span>
+                </div>
+              </div>
+
               <div className="h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={getFilteredChartData()}
+                    data={getFilteredChartDataForDisplay()}
                     margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                     barSize={40}
                   >
@@ -372,7 +736,8 @@ function App() {
                     <YAxis
                       tick={{ fill: "#9CA3AF" }}
                       label={{
-                        value: "Story Points",
+                        value:
+                          displayMode === "points" ? "Story Points" : "Tickets",
                         angle: -90,
                         position: "insideLeft",
                         fill: "#9CA3AF",
@@ -388,7 +753,12 @@ function App() {
                       }}
                       labelStyle={{ color: "#9CA3AF" }}
                       itemStyle={{ color: "#9CA3AF" }}
-                      formatter={(value, name) => [`${value} points`, name]}
+                      formatter={(value, name) => [
+                        `${value} ${
+                          displayMode === "points" ? "points" : "tickets"
+                        }`,
+                        name,
+                      ]}
                       labelFormatter={(label) =>
                         `Sprint ${label.replace("Thor: Sprint ", "")}`
                       }
@@ -400,7 +770,9 @@ function App() {
                     ).map((area) => (
                       <Bar
                         key={area}
-                        dataKey={area}
+                        dataKey={
+                          displayMode === "points" ? area : `${area}Tickets`
+                        }
                         stackId="a"
                         fill={areaColors[area]}
                         name={area}
