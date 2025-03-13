@@ -506,41 +506,54 @@ function App() {
       return sprintNum >= sprintMin && sprintNum <= sprintMax;
     });
 
-    // If an assignee is selected, filter the data further
-    if (selectedAssignee) {
-      filteredChartData = filteredChartData.map((sprint) => {
-        const filteredSprint = { sprint: sprint.sprint };
-
-        // For each area, check if the assignee contributed in this sprint
-        data.engineeringAreas.forEach((area) => {
-          const assigneeTickets =
-            data.ticketCountByAssigneeSprintArea[sprint.sprint]?.[area]?.[
-              selectedAssignee
-            ] || 0;
-          filteredSprint[area] = sprint[area] || 0;
-          filteredSprint[`${area}Tickets`] = assigneeTickets;
-        });
-
-        // Calculate totals for this sprint
-        filteredSprint.total = Object.entries(filteredSprint)
-          .filter(
-            ([key, val]) =>
-              typeof val === "number" &&
-              !key.includes("Tickets") &&
-              key !== "sprint"
-          )
-          .reduce((sum, [_, val]) => sum + val, 0);
-
-        filteredSprint.totalTickets = Object.entries(filteredSprint)
-          .filter(([key]) => key.includes("Tickets"))
-          .reduce((sum, [_, val]) => sum + (val || 0), 0);
-
-        return filteredSprint;
-      });
-    }
-
     // Get the filtered sprint names
     const filteredSprintNames = filteredChartData.map((item) => item.sprint);
+
+    // Calculate ticket counts and points for the filtered range
+    const ticketCountByArea = {};
+    const averageByArea = {};
+
+    data.engineeringAreas.forEach((area) => {
+      let totalTickets = 0;
+      let totalPoints = 0;
+
+      filteredSprintNames.forEach((sprintName) => {
+        if (selectedAssignee) {
+          // For selected assignee, count only their tickets
+          const assigneeTickets =
+            data.ticketCountByAssigneeSprintArea[sprintName]?.[area]?.[
+              selectedAssignee
+            ] || 0;
+          totalTickets += assigneeTickets;
+
+          // Calculate proportional points for the assignee
+          const sprintData = filteredChartData.find(
+            (s) => s.sprint === sprintName
+          );
+          const totalAreaTickets = sprintData?.[`${area}Tickets`] || 0;
+          if (totalAreaTickets > 0 && assigneeTickets > 0) {
+            totalPoints +=
+              (sprintData[area] || 0) * (assigneeTickets / totalAreaTickets);
+          }
+        } else {
+          // For all assignees, use total tickets and points
+          const sprintData = filteredChartData.find(
+            (s) => s.sprint === sprintName
+          );
+          totalTickets += sprintData?.[`${area}Tickets`] || 0;
+          totalPoints += sprintData?.[area] || 0;
+        }
+      });
+
+      ticketCountByArea[area] = totalTickets;
+      averageByArea[area] = totalPoints / filteredSprintNames.length;
+    });
+
+    // Calculate overall average velocity
+    const averageVelocity = Object.values(averageByArea).reduce(
+      (sum, avg) => sum + avg,
+      0
+    );
 
     // Filter assignees based on the sprint range
     const filteredAssigneesByArea = {};
@@ -566,51 +579,6 @@ function App() {
     // Convert Sets to Arrays
     Object.keys(filteredAssigneesByArea).forEach((area) => {
       filteredAssigneesByArea[area] = Array.from(filteredAssigneesByArea[area]);
-    });
-
-    if (filteredChartData.length === 0)
-      return {
-        chartData: filteredChartData,
-        averageVelocity: 0,
-        averageByArea: Object.fromEntries(
-          data.engineeringAreas.map((area) => [area, 0])
-        ),
-        ticketCountByArea: Object.fromEntries(
-          data.engineeringAreas.map((area) => [area, 0])
-        ),
-        filteredAssigneesByArea,
-      };
-
-    // Recalculate averages
-    const averageVelocity =
-      filteredChartData.reduce((sum, sprint) => sum + sprint.total, 0) /
-      filteredChartData.length;
-
-    const averageByArea = {};
-    const ticketCountByArea = {};
-
-    data.engineeringAreas.forEach((area) => {
-      // Calculate average points per sprint for this area
-      averageByArea[area] =
-        filteredChartData.reduce(
-          (sum, sprint) => sum + (sprint[area] || 0),
-          0
-        ) / filteredChartData.length;
-
-      // Calculate total tickets for this area
-      if (selectedAssignee) {
-        // For selected assignee, sum their tickets in this area
-        ticketCountByArea[area] = filteredChartData.reduce(
-          (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
-          0
-        );
-      } else {
-        // For all assignees, use the original ticket counts
-        ticketCountByArea[area] = filteredChartData.reduce(
-          (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
-          0
-        );
-      }
     });
 
     return {
@@ -659,6 +627,12 @@ function App() {
           }
         });
 
+        // Calculate total tickets for this sprint
+        ticketSprint.totalTickets = areasToInclude.reduce(
+          (sum, area) => sum + (ticketSprint[area] || 0),
+          0
+        );
+
         return ticketSprint;
       });
     } else {
@@ -672,16 +646,17 @@ function App() {
         areasToInclude.forEach((area) => {
           if (selectedAssignee) {
             // For points mode with selected assignee, we need to scale the points
-            // based on the proportion of tickets they contributed
-            const totalTickets = sprint[`${area}Tickets`] || 0;
+            // based on their specific tickets
             const assigneeTickets =
               data.ticketCountByAssigneeSprintArea[sprint.sprint]?.[area]?.[
                 selectedAssignee
               ] || 0;
-            if (totalTickets > 0) {
-              // Scale the points proportionally to their contribution
+            const totalAreaTickets = sprint[`${area}Tickets`] || 0;
+
+            // Only calculate points if there are tickets in this area
+            if (totalAreaTickets > 0 && assigneeTickets > 0) {
               filteredSprint[area] =
-                (sprint[area] || 0) * (assigneeTickets / totalTickets);
+                (sprint[area] || 0) * (assigneeTickets / totalAreaTickets);
             } else {
               filteredSprint[area] = 0;
             }
@@ -846,14 +821,33 @@ function App() {
   };
 
   // Create a component for the Avatars section
-  const AvatarGroup = ({ assignees, maxDisplay = 5 }) => {
+  const AvatarGroup = ({ assignees, maxDisplay = 5, area }) => {
     if (!assignees || assignees.length === 0) {
       return null;
     }
 
-    const totalAssignees = assignees.length;
-    const displayedAssignees = assignees.slice(0, maxDisplay);
-    const remainingAssignees = assignees.slice(maxDisplay);
+    // Calculate ticket counts for each assignee in the current area
+    const assigneeTicketCounts = {};
+    assignees.forEach((assignee) => {
+      let totalTickets = 0;
+      // Only count tickets within the selected sprint range
+      filteredChartData.forEach((sprint) => {
+        totalTickets +=
+          data.ticketCountByAssigneeSprintArea[sprint.sprint]?.[area]?.[
+            assignee
+          ] || 0;
+      });
+      assigneeTicketCounts[assignee] = totalTickets;
+    });
+
+    // Sort assignees by ticket count (descending)
+    const sortedAssignees = [...assignees].sort(
+      (a, b) => (assigneeTicketCounts[b] || 0) - (assigneeTicketCounts[a] || 0)
+    );
+
+    const totalAssignees = sortedAssignees.length;
+    const displayedAssignees = sortedAssignees.slice(0, maxDisplay);
+    const remainingAssignees = sortedAssignees.slice(maxDisplay);
     const remainingCount = totalAssignees - maxDisplay;
 
     const handleAssigneeClick = (assignee) => {
@@ -881,7 +875,7 @@ function App() {
     };
 
     // Custom tooltip component
-    const Tooltip = ({ content, children, isSelected }) => {
+    const Tooltip = ({ content, children, isSelected, ticketCount }) => {
       const [showTooltip, setShowTooltip] = useState(false);
 
       return (
@@ -919,70 +913,141 @@ function App() {
 
     // Multiple names tooltip component
     const MultiTooltip = ({ names }) => {
-      const [showTooltip, setShowTooltip] = useState(false);
-      const tooltipRef = useRef(null);
+      const [showList, setShowList] = useState(false);
+      const listRef = useRef(null);
+      const triggerRef = useRef(null);
+
+      // Handle clicking outside the list
+      useEffect(() => {
+        const handleClickOutside = (e) => {
+          if (
+            listRef.current &&
+            !listRef.current.contains(e.target) &&
+            triggerRef.current &&
+            !triggerRef.current.contains(e.target)
+          ) {
+            setShowList(false);
+          }
+        };
+
+        if (showList) {
+          document.addEventListener("mousedown", handleClickOutside);
+        }
+
+        return () => {
+          document.removeEventListener("mousedown", handleClickOutside);
+        };
+      }, [showList]);
+
+      const handleTriggerClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowList(!showList);
+      };
 
       return (
-        <div
-          className="relative inline-block"
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-          onFocus={() => setShowTooltip(true)}
-          onBlur={() => setShowTooltip(false)}
-          ref={tooltipRef}
-        >
-          <div className="relative z-0 inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-gray-800 bg-gray-600">
+        <div className="relative inline-block">
+          {/* Trigger Button */}
+          <button
+            ref={triggerRef}
+            onClick={handleTriggerClick}
+            className="relative z-[50] inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-gray-800 bg-gray-600 hover:bg-gray-500 transition-colors"
+          >
             <span className="text-xs font-medium text-white">
               +{remainingCount}
             </span>
-          </div>
+          </button>
 
-          {showTooltip && (
-            <div
-              className="fixed transform -translate-x-1/2 z-[9999]"
-              style={{
-                left:
-                  tooltipRef.current?.getBoundingClientRect().left +
-                  (tooltipRef.current?.offsetWidth || 0) / 2,
-                top: tooltipRef.current?.getBoundingClientRect().top - 8,
-              }}
-            >
-              <div className="bg-gray-800 text-white text-xs rounded py-2 px-3 shadow-lg border border-gray-700 min-w-[200px]">
-                <p className="font-semibold mb-1">Other contributors:</p>
-                <ul className="space-y-1">
-                  {names.map((name, idx) => (
-                    <li
-                      key={idx}
-                      className="flex items-center cursor-pointer hover:bg-gray-700 px-2 py-1 rounded"
-                      onClick={() => handleAssigneeClick(name)}
+          {/* List Overlay */}
+          {showList && (
+            <>
+              {/* Semi-transparent backdrop */}
+              <div
+                className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[99998]"
+                onClick={() => setShowList(false)}
+              />
+
+              {/* Contributors List */}
+              <div
+                ref={listRef}
+                className="fixed z-[99999]"
+                style={{
+                  left:
+                    triggerRef.current?.getBoundingClientRect().left +
+                    (triggerRef.current?.offsetWidth || 0) / 2,
+                  top: triggerRef.current?.getBoundingClientRect().top - 12,
+                  transform: "translateX(-50%)",
+                }}
+              >
+                <div className="bg-gray-800 text-white rounded-lg shadow-xl border border-gray-700 p-3 min-w-[240px]">
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-700">
+                    <h3 className="font-semibold text-sm">
+                      Other Contributors
+                    </h3>
+                    <button
+                      onClick={() => setShowList(false)}
+                      className="text-gray-400 hover:text-white"
                     >
-                      <div
-                        className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center mr-1.5 ${getAvatarColor(
-                          name
-                        )}`}
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        <span className="text-[10px]">{getInitial(name)}</span>
-                      </div>
-                      <span className="truncate">{name}</span>
-                      {selectedAssignee === name && (
-                        <svg
-                          className="flex-shrink-0 w-3 h-3 ml-1 text-blue-500"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="max-h-[300px] overflow-y-auto">
+                    <ul className="space-y-1">
+                      {names.map((name, idx) => (
+                        <li
+                          key={idx}
+                          className="flex items-center px-2 py-2 rounded hover:bg-gray-700/50 cursor-pointer group"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAssigneeClick(name);
+                            setShowList(false);
+                          }}
                         >
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                          <div
+                            className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mr-2 ${getAvatarColor(
+                              name
+                            )}`}
+                          >
+                            <span className="text-xs font-medium">
+                              {getInitial(name)}
+                            </span>
+                          </div>
+                          <span className="flex-grow text-sm group-hover:text-white transition-colors">
+                            {name} ({assigneeTicketCounts[name]} tickets)
+                          </span>
+                          {selectedAssignee === name && (
+                            <svg
+                              className="w-4 h-4 text-blue-500 ml-2"
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
-              <div className="w-2 h-2 bg-gray-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2 border-r border-b border-gray-700"></div>
-            </div>
+            </>
           )}
         </div>
       );
@@ -995,6 +1060,7 @@ function App() {
             key={index}
             content={assignee}
             isSelected={selectedAssignee === assignee}
+            ticketCount={assigneeTicketCounts[assignee]}
           >
             <div
               onClick={() => handleAssigneeClick(assignee)}
@@ -1033,6 +1099,7 @@ function App() {
           sprintRange[0]) /
           100
     );
+
     const sprintMax = Math.ceil(
       sprintNumbers[0] +
         ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
@@ -1060,25 +1127,10 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-12">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
-            Squad Velocity
+        <div className="mb-8">
+          <h1 className="text-3xl font-semibold tracking-tight bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 bg-clip-text text-transparent">
+            Squad Product Delivery Dashboard
           </h1>
-          <div className="mt-4 bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700">
-            <div className="flex items-start space-x-2">
-              <div className="w-1 h-16 bg-blue-500 rounded-full mt-1" />
-              <div>
-                <h2 className="text-lg font-semibold">
-                  Understanding Velocity
-                </h2>
-                <p className="text-gray-400 text-sm leading-relaxed">
-                  Track completed story points across sprints. Each bar shows
-                  work completed when tickets move to 'Done'. Click the cards
-                  below to filter by engineering area.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
 
         {!data && (
@@ -1223,6 +1275,7 @@ function App() {
                           <AvatarGroup
                             assignees={filteredAssigneesByArea[area]}
                             maxDisplay={7}
+                            area={area}
                           />
                         </div>
                       )}
@@ -1414,18 +1467,24 @@ function App() {
                   <div className="overflow-x-auto">
                     <div className="overflow-y-auto max-h-[400px]">
                       <table className="w-full border-collapse">
-                        <thead>
-                          <tr className="bg-gray-800/50 backdrop-blur-sm">
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                        <thead className="sticky top-0 z-50">
+                          <tr>
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-900/95 backdrop-blur-sm border-b border-gray-700">
                               Issue Key
                             </th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-900/95 backdrop-blur-sm border-b border-gray-700">
                               Summary
                             </th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-900/95 backdrop-blur-sm border-b border-gray-700">
+                              Sprint
+                            </th>
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-900/95 backdrop-blur-sm border-b border-gray-700">
+                              Engineering Area
+                            </th>
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-900/95 backdrop-blur-sm border-b border-gray-700">
                               Points
                             </th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-900/95 backdrop-blur-sm border-b border-gray-700">
                               Assignee
                             </th>
                           </tr>
@@ -1445,10 +1504,16 @@ function App() {
                                 {ticket.summary}
                               </td>
                               <td className="py-2 px-4 text-sm text-gray-300">
+                                {ticket.sprint}
+                              </td>
+                              <td className="py-2 px-4 text-sm text-gray-300">
+                                {ticket.area}
+                              </td>
+                              <td className="py-2 px-4 text-sm text-gray-300">
                                 {ticket.points}
                               </td>
                               <td className="py-2 px-4 text-sm">
-                                <div className="flex items-center space-x-2">
+                                <div className="relative group">
                                   <div
                                     className={`w-6 h-6 rounded-full flex items-center justify-center ${getAvatarColor(
                                       ticket.assignee
@@ -1458,9 +1523,13 @@ function App() {
                                       {getInitial(ticket.assignee)}
                                     </span>
                                   </div>
-                                  <span className="text-gray-300">
-                                    {ticket.assignee}
-                                  </span>
+                                  {/* Tooltip */}
+                                  <div className="absolute left-1/2 -translate-x-1/2 -translate-y-full top-0 pt-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[60]">
+                                    <div className="bg-gray-800 text-white text-xs rounded py-1 px-2 shadow-lg border border-gray-700 whitespace-nowrap">
+                                      {ticket.assignee}
+                                    </div>
+                                    <div className="w-2 h-2 bg-gray-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2 border-r border-b border-gray-700"></div>
+                                  </div>
                                 </div>
                               </td>
                             </tr>
