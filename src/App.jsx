@@ -195,6 +195,9 @@ function App() {
     // Track ticket counts by assignee, sprint, and area
     const ticketCountByAssigneeSprintArea = {};
 
+    // Store ticket details
+    const tickets = [];
+
     // Process each row
     results.data.slice(1).forEach((row) => {
       if (!row || row.length < headers.length) return; // Skip empty or malformed rows
@@ -214,7 +217,11 @@ function App() {
 
       if (!completionSprint) return; // Skip if no sprint found
 
-      // Get assignee
+      // Get ticket details
+      const issueKey = row[headers.indexOf("Issue key")];
+      const summary = row[headers.indexOf("Summary")] || "";
+      const pointsStr = row[headers.indexOf("Custom field (Story Points)")];
+      const points = parseInt(pointsStr);
       const assigneeIdx = headers.indexOf("Assignee");
       const assignee = assigneeIdx >= 0 ? row[assigneeIdx] : null;
 
@@ -244,6 +251,16 @@ function App() {
       }
 
       if (!area || area.trim() === "") return; // Skip if no engineering area found
+
+      // Store ticket details
+      tickets.push({
+        key: issueKey,
+        summary,
+        points: isNaN(points) ? 0 : points,
+        assignee,
+        area,
+        sprint: completionSprint,
+      });
 
       // Add to set of engineering areas (do this regardless of story points)
       engineeringAreas.add(area);
@@ -305,8 +322,6 @@ function App() {
       ticketCountBySprintAndArea[completionSprint].total += 1;
 
       // Only add story points if they are valid
-      const pointsStr = row[headers.indexOf("Custom field (Story Points)")];
-      const points = parseInt(pointsStr);
       if (!isNaN(points)) {
         velocityBySprintAndArea[completionSprint].byArea[area] += points;
         velocityBySprintAndArea[completionSprint].total += points;
@@ -381,6 +396,7 @@ function App() {
       assigneesByAreaAndSprint,
       assigneesByArea,
       ticketCountByAssigneeSprintArea,
+      tickets,
     };
   };
 
@@ -803,6 +819,32 @@ function App() {
     return baseColors[area] || generateColorForArea(area, index);
   };
 
+  // Move getInitial function to component scope
+  const getInitial = (name) => {
+    return name ? name.trim().charAt(0).toUpperCase() : "?";
+  };
+
+  // Move getAvatarColor function to component scope
+  const getAvatarColor = (name) => {
+    const colors = [
+      "bg-blue-500",
+      "bg-purple-500",
+      "bg-green-500",
+      "bg-yellow-500",
+      "bg-pink-500",
+      "bg-indigo-500",
+      "bg-red-500",
+      "bg-teal-500",
+    ];
+
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+
+    return colors[Math.abs(hash) % colors.length];
+  };
+
   // Create a component for the Avatars section
   const AvatarGroup = ({ assignees, maxDisplay = 5 }) => {
     if (!assignees || assignees.length === 0) {
@@ -836,32 +878,6 @@ function App() {
           setSelectedAreas(contributedAreas);
         }
       }
-    };
-
-    // Function to get the initial from name
-    const getInitial = (name) => {
-      return name ? name.trim().charAt(0).toUpperCase() : "?";
-    };
-
-    // Function to get a deterministic color based on name
-    const getAvatarColor = (name) => {
-      const colors = [
-        "bg-blue-500",
-        "bg-purple-500",
-        "bg-green-500",
-        "bg-yellow-500",
-        "bg-pink-500",
-        "bg-indigo-500",
-        "bg-red-500",
-        "bg-teal-500",
-      ];
-
-      let hash = 0;
-      for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-      }
-
-      return colors[Math.abs(hash) % colors.length];
     };
 
     // Custom tooltip component
@@ -1005,6 +1021,40 @@ function App() {
         {remainingCount > 0 && <MultiTooltip names={remainingAssignees} />}
       </div>
     );
+  };
+
+  const getFilteredTickets = () => {
+    if (!data) return [];
+
+    // Get sprint range
+    const sprintMin = Math.floor(
+      sprintNumbers[0] +
+        ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+          sprintRange[0]) /
+          100
+    );
+    const sprintMax = Math.ceil(
+      sprintNumbers[0] +
+        ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+          sprintRange[1]) /
+          100
+    );
+
+    return data.tickets.filter((ticket) => {
+      // Filter by sprint range
+      const sprintNum = getSprintNumber(ticket.sprint);
+      if (sprintNum < sprintMin || sprintNum > sprintMax) return false;
+
+      // Filter by selected areas
+      if (selectedAreas.has("overall")) {
+        // When "overall" is selected, show all areas
+        return selectedAssignee ? ticket.assignee === selectedAssignee : true;
+      } else {
+        // When specific areas are selected
+        if (!selectedAreas.has(ticket.area)) return false;
+        return selectedAssignee ? ticket.assignee === selectedAssignee : true;
+      }
+    });
   };
 
   return (
@@ -1350,6 +1400,76 @@ function App() {
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+
+              {/* Tickets Table */}
+              <div className="mt-8 border-t border-gray-700 pt-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold">Tickets</h3>
+                  <div className="text-sm text-gray-400">
+                    Showing tickets for selected filters
+                  </div>
+                </div>
+                <div className="relative overflow-hidden rounded-lg border border-gray-700">
+                  <div className="overflow-x-auto">
+                    <div className="overflow-y-auto max-h-[400px]">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="bg-gray-800/50 backdrop-blur-sm">
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                              Issue Key
+                            </th>
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                              Summary
+                            </th>
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                              Points
+                            </th>
+                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700">
+                              Assignee
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-700 bg-gray-800/30">
+                          {getFilteredTickets().map((ticket, index) => (
+                            <tr
+                              key={ticket.key}
+                              className={`hover:bg-gray-700/30 transition-colors ${
+                                index % 2 === 0 ? "bg-gray-800/10" : ""
+                              }`}
+                            >
+                              <td className="py-2 px-4 text-sm whitespace-nowrap text-blue-400">
+                                {ticket.key}
+                              </td>
+                              <td className="py-2 px-4 text-sm text-gray-300">
+                                {ticket.summary}
+                              </td>
+                              <td className="py-2 px-4 text-sm text-gray-300">
+                                {ticket.points}
+                              </td>
+                              <td className="py-2 px-4 text-sm">
+                                <div className="flex items-center space-x-2">
+                                  <div
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center ${getAvatarColor(
+                                      ticket.assignee
+                                    )}`}
+                                  >
+                                    <span className="text-xs font-medium text-white">
+                                      {getInitial(ticket.assignee)}
+                                    </span>
+                                  </div>
+                                  <span className="text-gray-300">
+                                    {ticket.assignee}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
