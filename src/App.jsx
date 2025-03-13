@@ -682,15 +682,15 @@ function App() {
       const totalRange = maxNum - minNum;
 
       if (type === "min") {
-        // Convert min sprint to percentage
+        // Convert min sprint to percentage without restrictions
         const percentage =
           totalRange > 0 ? ((numValue - minNum) / totalRange) * 100 : 0;
-        newRange[0] = Math.max(0, Math.min(newRange[1] - 5, percentage));
+        newRange[0] = Math.max(0, Math.min(100, percentage));
       } else {
-        // Convert max sprint to percentage
+        // Convert max sprint to percentage without restrictions
         const percentage =
           totalRange > 0 ? ((numValue - minNum) / totalRange) * 100 : 100;
-        newRange[1] = Math.min(100, Math.max(newRange[0] + 5, percentage));
+        newRange[1] = Math.max(0, Math.min(100, percentage));
       }
 
       setSprintRange(newRange);
@@ -744,11 +744,7 @@ function App() {
               className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
             >
               {sprintNumbers.map((num) => (
-                <option
-                  key={`min-${num}`}
-                  value={num}
-                  disabled={num > displayMax - 1}
-                >
+                <option key={`min-${num}`} value={num}>
                   {num}
                 </option>
               ))}
@@ -769,11 +765,7 @@ function App() {
               className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
             >
               {sprintNumbers.map((num) => (
-                <option
-                  key={`max-${num}`}
-                  value={num}
-                  disabled={num < displayMin + 1}
-                >
+                <option key={`max-${num}`} value={num}>
                   {num}
                 </option>
               ))}
