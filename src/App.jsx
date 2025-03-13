@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Papa from "papaparse";
 import {
   BarChart,
@@ -42,15 +42,53 @@ const icons = {
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
     </svg>
   ),
+  Design: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3.31-2.69 6-6 6h-1.77c-.28 0-.5.22-.5.5 0 .12.05.23.13.33.41.64.64 1.06 1.67A2.5 2.5 0 0 1 12 22zm0-18c-4.41 0-8 3.59-8 8s3.59 8 8 8c.28 0 .5-.22.5-.5a.54.54 0 0 0-.14-.35c-.41-.46-.63-1.05-.63-1.65a2.5 2.5 0 0 1 2.5-2.5H16c2.21 0 4-1.79 4-4 0-3.86-3.59-7-8-7z" />
+      <circle cx="6.5" cy="11.5" r="1.5" />
+      <circle cx="9.5" cy="7.5" r="1.5" />
+      <circle cx="14.5" cy="7.5" r="1.5" />
+      <circle cx="17.5" cy="11.5" r="1.5" />
+    </svg>
+  ),
+  "Data Analytics": (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-5h2v5zm4 0h-2v-7h2v7zm4 0h-2V7h2v10z" />
+    </svg>
+  ),
+  // Generic icon for any other engineering area
+  generic: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M14.5,16 C15.3284271,16 16,16.6715729 16,17.5 C16,18.3284271 15.3284271,19 14.5,19 C13.6715729,19 13,18.3284271 13,17.5 C13,16.6715729 13.6715729,16 14.5,16 Z M8.5,16 C9.32842712,16 10,16.6715729 10,17.5 C10,18.3284271 9.32842712,19 8.5,19 C7.67157288,19 7,18.3284271 7,17.5 C7,16.6715729 7.67157288,16 8.5,16 Z M14.5,11 C15.3284271,11 16,11.6715729 16,12.5 C16,13.3284271 15.3284271,14 14.5,14 C13.6715729,14 13,13.3284271 13,12.5 C13,11.6715729 13.6715729,11 14.5,11 Z M8.5,11 C9.32842712,11 10,11.6715729 10,12.5 C10,13.3284271 9.32842712,14 8.5,14 C7.67157288,14 7,13.3284271 7,12.5 C7,11.6715729 7.67157288,11 8.5,11 Z M14.5,6 C15.3284271,6 16,6.67157288 16,7.5 C16,8.32842712 15.3284271,9 14.5,9 C13.6715729,9 13,8.32842712 13,7.5 C13,6.67157288 13.6715729,6 14.5,6 Z M8.5,6 C9.32842712,6 10,6.67157288 10,7.5 C10,8.32842712 9.32842712,9 8.5,9 C7.67157288,9 7,8.32842712 7,7.5 C7,6.67157288 7.67157288,6 8.5,6 Z" />
+    </svg>
+  ),
 };
 
-// Define a consistent color scheme for each area
-const areaColors = {
+// Base color palette
+const baseColors = {
   overall: "rgba(59, 130, 246, 0.8)", // Blue
   Web: "rgba(99, 102, 241, 0.8)", // Indigo
   Backend: "rgba(139, 92, 246, 0.8)", // Purple
   Mobile: "rgba(167, 139, 250, 0.8)", // Violet
   "Data Engineering": "rgba(196, 181, 253, 0.8)", // Light purple
+  Design: "rgba(236, 72, 153, 0.8)", // Pink
+  "Data Analytics": "rgba(16, 185, 129, 0.8)", // Emerald
+};
+
+// Function to generate a color for an area that doesn't have a predefined color
+const generateColorForArea = (area, index = 0) => {
+  // If the area has a predefined color, use it
+  if (baseColors[area]) {
+    return baseColors[area];
+  }
+
+  // Otherwise, generate a color based on the area name
+  // This ensures the same area always gets the same color
+  const hue =
+    (area.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) +
+      index * 50) %
+    360;
+  return `hsla(${hue}, 70%, 60%, 0.8)`;
 };
 
 function App() {
@@ -61,6 +99,56 @@ function App() {
   const [displayMode, setDisplayMode] = useState("points"); // "points" or "tickets"
   const [sprintRange, setSprintRange] = useState([0, 100]); // [min, max] as percentages
   const [sprintNumbers, setSprintNumbers] = useState([]);
+  const [showSprintFilter, setShowSprintFilter] = useState(false);
+
+  const sprintFilterRef = useRef(null);
+
+  // Close the sprint filter dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (
+        sprintFilterRef.current &&
+        !sprintFilterRef.current.contains(event.target)
+      ) {
+        setShowSprintFilter(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // For quick preset filters
+  const applyPresetFilter = (presetType) => {
+    switch (presetType) {
+      case "all":
+        setSprintRange([0, 100]);
+        break;
+      case "last3":
+        if (sprintNumbers.length > 0) {
+          const percentage = Math.max(
+            0,
+            100 - (3 / sprintNumbers.length) * 100
+          );
+          setSprintRange([percentage, 100]);
+        }
+        break;
+      case "last6":
+        if (sprintNumbers.length > 0) {
+          const percentage = Math.max(
+            0,
+            100 - (6 / sprintNumbers.length) * 100
+          );
+          setSprintRange([percentage, 100]);
+        }
+        break;
+      default:
+        break;
+    }
+    setShowSprintFilter(false);
+  };
 
   const validateColumns = (headers) => {
     const requiredColumns = {
@@ -119,14 +207,34 @@ function App() {
 
       if (!completionSprint) return; // Skip if no sprint found
 
-      const area = row[headers.indexOf("Custom field (Engineering Area)")];
-      if (!area || area.trim() === "") return; // Skip if no engineering area
+      // Check for Engineering Area across multiple possible columns
+      let area = null;
 
-      const pointsStr = row[headers.indexOf("Custom field (Story Points)")];
-      const points = parseInt(pointsStr);
-      if (isNaN(points)) return; // Skip if no valid story points
+      // First try the exact match column
+      const exactMatchIdx = headers.indexOf("Custom field (Engineering Area)");
+      if (
+        exactMatchIdx >= 0 &&
+        row[exactMatchIdx] &&
+        row[exactMatchIdx].trim() !== ""
+      ) {
+        area = row[exactMatchIdx];
+      } else {
+        // Try all columns that contain "Engineering Area" in their name
+        for (let i = 0; i < headers.length; i++) {
+          if (
+            headers[i].includes("Engineering Area") &&
+            row[i] &&
+            row[i].trim() !== ""
+          ) {
+            area = row[i];
+            break;
+          }
+        }
+      }
 
-      // Add to set of engineering areas
+      if (!area || area.trim() === "") return; // Skip if no engineering area found
+
+      // Add to set of engineering areas (do this regardless of story points)
       engineeringAreas.add(area);
 
       // Initialize sprint data if needed
@@ -145,19 +253,25 @@ function App() {
         };
       }
 
-      // Initialize area data if needed
+      // Initialize area data if needed (for both points and tickets)
       if (!velocityBySprintAndArea[completionSprint].byArea[area]) {
         velocityBySprintAndArea[completionSprint].byArea[area] = 0;
+      }
+      if (!ticketCountBySprintAndArea[completionSprint].byArea[area]) {
         ticketCountBySprintAndArea[completionSprint].byArea[area] = 0;
       }
 
-      // Add points
-      velocityBySprintAndArea[completionSprint].byArea[area] += points;
-      velocityBySprintAndArea[completionSprint].total += points;
-
-      // Increment ticket count
+      // Always increment ticket count regardless of story points
       ticketCountBySprintAndArea[completionSprint].byArea[area] += 1;
       ticketCountBySprintAndArea[completionSprint].total += 1;
+
+      // Only add story points if they are valid
+      const pointsStr = row[headers.indexOf("Custom field (Story Points)")];
+      const points = parseInt(pointsStr);
+      if (!isNaN(points)) {
+        velocityBySprintAndArea[completionSprint].byArea[area] += points;
+        velocityBySprintAndArea[completionSprint].total += points;
+      }
     });
 
     // Convert to chart data format
@@ -385,20 +499,9 @@ function App() {
 
     const dataToFilter = filteredChartData;
 
-    const filteredDisplayData = selectedAreas.has("overall")
-      ? dataToFilter
-      : dataToFilter.map((sprint) => {
-          const filteredSprint = { sprint: sprint.sprint };
-          selectedAreas.forEach((area) => {
-            filteredSprint[area] = sprint[area] || 0;
-            filteredSprint[`${area}Tickets`] = sprint[`${area}Tickets`] || 0;
-          });
-          return filteredSprint;
-        });
-
     // If we're displaying tickets, transform the data
     if (displayMode === "tickets") {
-      return filteredDisplayData.map((sprint) => {
+      return dataToFilter.map((sprint) => {
         const ticketSprint = { sprint: sprint.sprint };
 
         // For all engineering areas being displayed
@@ -407,31 +510,51 @@ function App() {
           : Array.from(selectedAreas);
 
         areasToInclude.forEach((area) => {
-          // Use the ticket count as the primary value
+          // Just use the area name directly for ticket counts in tickets mode
           ticketSprint[area] = sprint[`${area}Tickets`] || 0;
         });
 
         return ticketSprint;
       });
+    } else {
+      // Points mode
+      return selectedAreas.has("overall")
+        ? dataToFilter
+        : dataToFilter.map((sprint) => {
+            const filteredSprint = { sprint: sprint.sprint };
+            selectedAreas.forEach((area) => {
+              filteredSprint[area] = sprint[area] || 0;
+            });
+            return filteredSprint;
+          });
     }
-
-    return filteredDisplayData;
   };
 
-  const handleRangeChange = (e, index) => {
-    const newValue = parseInt(e.target.value);
+  // Handle range change from the dropdowns
+  const handleRangeChange = (type, value) => {
+    const numValue = parseInt(value);
+    const newRange = [...sprintRange];
 
-    let newRange = [...sprintRange];
+    // Convert the actual sprint number to percentage for our internal state
+    if (sprintNumbers.length > 0) {
+      const minNum = sprintNumbers[0];
+      const maxNum = sprintNumbers[sprintNumbers.length - 1];
+      const totalRange = maxNum - minNum;
 
-    if (index === 0) {
-      // Updating minimum value
-      newRange[0] = Math.min(newValue, newRange[1] - 5);
-    } else {
-      // Updating maximum value
-      newRange[1] = Math.max(newValue, newRange[0] + 5);
+      if (type === "min") {
+        // Convert min sprint to percentage
+        const percentage =
+          totalRange > 0 ? ((numValue - minNum) / totalRange) * 100 : 0;
+        newRange[0] = Math.max(0, Math.min(newRange[1] - 5, percentage));
+      } else {
+        // Convert max sprint to percentage
+        const percentage =
+          totalRange > 0 ? ((numValue - minNum) / totalRange) * 100 : 100;
+        newRange[1] = Math.min(100, Math.max(newRange[0] + 5, percentage));
+      }
+
+      setSprintRange(newRange);
     }
-
-    setSprintRange(newRange);
   };
 
   // Get the actual min and max sprint numbers from the percentage range
@@ -452,6 +575,82 @@ function App() {
               (sprintRange[1] / 100)
         )
       : 0;
+
+  // Sprint filter component with dropdown selectors
+  const SprintFilterControls = ({ showLabels = true }) => {
+    return (
+      <div className="w-full">
+        {showLabels && (
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs font-medium text-gray-400">
+              Sprint Range
+            </span>
+            <span className="text-xs font-medium bg-gray-700/80 px-2 py-0.5 rounded">
+              {displayMin} – {displayMax}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex-1">
+            <label className="block text-xs text-gray-400 mb-1">
+              From Sprint
+            </label>
+            <select
+              value={displayMin}
+              onChange={(e) => handleRangeChange("min", e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
+            >
+              {sprintNumbers.map((num) => (
+                <option
+                  key={`min-${num}`}
+                  value={num}
+                  disabled={num > displayMax - 1}
+                >
+                  {num}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="pt-6">
+            <span className="text-gray-400">—</span>
+          </div>
+
+          <div className="flex-1">
+            <label className="block text-xs text-gray-400 mb-1">
+              To Sprint
+            </label>
+            <select
+              value={displayMax}
+              onChange={(e) => handleRangeChange("max", e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
+            >
+              {sprintNumbers.map((num) => (
+                <option
+                  key={`max-${num}`}
+                  value={num}
+                  disabled={num < displayMin + 1}
+                >
+                  {num}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Get icon for an engineering area
+  const getIconForArea = (area) => {
+    return icons[area] || icons.generic;
+  };
+
+  // Get color for an engineering area
+  const getColorForArea = (area, index) => {
+    return baseColors[area] || generateColorForArea(area, index);
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
@@ -508,7 +707,7 @@ function App() {
 
         {data && (
           <div className="space-y-6">
-            <div className="grid grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               <div
                 onClick={() => toggleArea("overall")}
                 className={`bg-gray-800 p-6 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-700 relative overflow-hidden group ${
@@ -520,9 +719,9 @@ function App() {
                   <div className="flex items-center space-x-3 mb-3">
                     <div
                       className="w-5 h-5"
-                      style={{ color: areaColors.overall }}
+                      style={{ color: getColorForArea("overall") }}
                     >
-                      {icons.overall}
+                      {getIconForArea("overall")}
                     </div>
                     <h3 className="text-gray-400 text-sm">Overall Velocity</h3>
                   </div>
@@ -559,7 +758,7 @@ function App() {
                 </div>
               </div>
 
-              {Object.entries(averageByArea).map(([area, average]) => (
+              {Object.entries(averageByArea).map(([area, average], index) => (
                 <div
                   key={area}
                   onClick={() => toggleArea(area)}
@@ -572,9 +771,9 @@ function App() {
                     <div className="flex items-center space-x-3 mb-3">
                       <div
                         className="w-5 h-5"
-                        style={{ color: areaColors[area] }}
+                        style={{ color: getColorForArea(area, index) }}
                       >
-                        {icons[area] || icons.overall}
+                        {getIconForArea(area)}
                       </div>
                       <h3 className="text-gray-400 text-sm">{area}</h3>
                     </div>
@@ -623,98 +822,101 @@ function App() {
                   </p>
                 </div>
 
-                {/* Toggle Switch */}
-                <div
-                  onClick={toggleDisplayMode}
-                  className="relative flex items-center h-8 cursor-pointer bg-gray-700 rounded-full w-48 p-1"
-                >
-                  <div
-                    className={`absolute transition-transform duration-300 ease-in-out h-6 w-24 bg-blue-600 rounded-full ${
-                      displayMode === "tickets"
-                        ? "translate-x-[5.5rem]"
-                        : "translate-x-0"
-                    }`}
-                  />
-                  <div
-                    className={`flex-1 flex justify-center items-center z-10 text-sm ${
-                      displayMode === "points" ? "text-white" : "text-gray-400"
-                    }`}
-                  >
-                    Story Points
+                <div className="flex items-center space-x-4">
+                  {/* Sprint Filter Dropdown */}
+                  <div className="relative" ref={sprintFilterRef}>
+                    <button
+                      onClick={() => setShowSprintFilter(!showSprintFilter)}
+                      className="flex items-center space-x-2 bg-gray-700/70 hover:bg-gray-700 text-sm py-1.5 px-3 rounded-lg transition-colors"
+                    >
+                      <span className="text-gray-300">
+                        Sprint {displayMin} – {displayMax}
+                      </span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 text-gray-400"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </button>
+
+                    {showSprintFilter && (
+                      <div className="absolute right-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-4 z-50">
+                        <div className="mb-4">
+                          <SprintFilterControls showLabels={false} />
+                        </div>
+
+                        {/* Quick presets */}
+                        <div className="space-y-1.5 border-t border-gray-700 pt-3">
+                          <h4 className="text-xs text-gray-400 mb-2">
+                            Quick filters
+                          </h4>
+                          <button
+                            onClick={() => applyPresetFilter("all")}
+                            className="w-full text-left text-sm text-gray-300 hover:text-white py-1 px-2 rounded hover:bg-gray-700/50 transition-colors"
+                          >
+                            All sprints
+                          </button>
+                          <button
+                            onClick={() => applyPresetFilter("last3")}
+                            className="w-full text-left text-sm text-gray-300 hover:text-white py-1 px-2 rounded hover:bg-gray-700/50 transition-colors"
+                          >
+                            Last 3 sprints
+                          </button>
+                          <button
+                            onClick={() => applyPresetFilter("last6")}
+                            className="w-full text-left text-sm text-gray-300 hover:text-white py-1 px-2 rounded hover:bg-gray-700/50 transition-colors"
+                          >
+                            Last 6 sprints
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Toggle Switch */}
                   <div
-                    className={`flex-1 flex justify-center items-center z-10 text-sm ${
-                      displayMode === "tickets" ? "text-white" : "text-gray-400"
-                    }`}
+                    onClick={toggleDisplayMode}
+                    className="relative flex items-center h-8 cursor-pointer bg-gray-700 rounded-full w-48 p-1"
                   >
-                    Tickets
+                    <div
+                      className={`absolute transition-transform duration-300 ease-in-out h-6 w-24 bg-blue-600 rounded-full ${
+                        displayMode === "tickets"
+                          ? "translate-x-[5.5rem]"
+                          : "translate-x-0"
+                      }`}
+                    />
+                    <div
+                      className={`flex-1 flex justify-center items-center z-10 text-sm ${
+                        displayMode === "points"
+                          ? "text-white"
+                          : "text-gray-400"
+                      }`}
+                    >
+                      Story Points
+                    </div>
+                    <div
+                      className={`flex-1 flex justify-center items-center z-10 text-sm ${
+                        displayMode === "tickets"
+                          ? "text-white"
+                          : "text-gray-400"
+                      }`}
+                    >
+                      Tickets
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Sprint Range Slider */}
-              <div className="mb-8 mt-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-400">Sprint Range:</span>
-                  <span className="text-sm bg-gray-700 px-3 py-1 rounded-full">
-                    Sprint {displayMin} – {displayMax}
-                  </span>
-                </div>
-
-                <div className="relative h-12 flex items-center mb-2">
-                  {/* Track */}
-                  <div className="absolute w-full h-1 bg-gray-700 rounded-full"></div>
-
-                  {/* Range highlight */}
-                  <div
-                    className="absolute h-1 bg-blue-500 rounded-full"
-                    style={{
-                      left: `${sprintRange[0]}%`,
-                      width: `${sprintRange[1] - sprintRange[0]}%`,
-                    }}
-                  ></div>
-
-                  {/* Min & Max Thumb Labels */}
-                  <div
-                    className="absolute text-xs text-gray-400 -top-4 transform -translate-x-1/2"
-                    style={{ left: `${sprintRange[0]}%` }}
-                  >
-                    Min
-                  </div>
-                  <div
-                    className="absolute text-xs text-gray-400 -top-4 transform -translate-x-1/2"
-                    style={{ left: `${sprintRange[1]}%` }}
-                  >
-                    Max
-                  </div>
-
-                  {/* Min handle with z-index to be on top when needed */}
-                  <input
-                    type="range"
-                    min="0"
-                    max="95"
-                    value={sprintRange[0]}
-                    onChange={(e) => handleRangeChange(e, 0)}
-                    className="absolute w-full appearance-none bg-transparent z-20 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md"
-                  />
-
-                  {/* Max handle */}
-                  <input
-                    type="range"
-                    min="5"
-                    max="100"
-                    value={sprintRange[1]}
-                    onChange={(e) => handleRangeChange(e, 1)}
-                    className="absolute w-full appearance-none bg-transparent z-10 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md"
-                  />
-                </div>
-
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>Sprint {sprintNumbers[0] || 0}</span>
-                  <span>
-                    Sprint {sprintNumbers[sprintNumbers.length - 1] || 0}
-                  </span>
-                </div>
+              {/* Sprint Range Controls for Mobile - Now using dropdowns */}
+              <div className="md:hidden mb-8 mt-4">
+                <SprintFilterControls showLabels={true} />
               </div>
 
               <div className="h-[400px]">
@@ -767,14 +969,12 @@ function App() {
                       selectedAreas.has("overall")
                         ? data.engineeringAreas
                         : selectedAreas
-                    ).map((area) => (
+                    ).map((area, index) => (
                       <Bar
                         key={area}
-                        dataKey={
-                          displayMode === "points" ? area : `${area}Tickets`
-                        }
+                        dataKey={area}
                         stackId="a"
-                        fill={areaColors[area]}
+                        fill={getColorForArea(area, index)}
                         name={area}
                       />
                     ))}
