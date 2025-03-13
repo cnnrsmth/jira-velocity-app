@@ -100,6 +100,7 @@ function App() {
   const [sprintRange, setSprintRange] = useState([0, 100]); // [min, max] as percentages
   const [sprintNumbers, setSprintNumbers] = useState([]);
   const [showSprintFilter, setShowSprintFilter] = useState(false);
+  const [selectedAssignee, setSelectedAssignee] = useState(null);
 
   const sprintFilterRef = useRef(null);
 
@@ -191,6 +192,9 @@ function App() {
     // Track assignees by area and sprint
     const assigneesByAreaAndSprint = {};
 
+    // Track ticket counts by assignee, sprint, and area
+    const ticketCountByAssigneeSprintArea = {};
+
     // Process each row
     results.data.slice(1).forEach((row) => {
       if (!row || row.length < headers.length) return; // Skip empty or malformed rows
@@ -268,9 +272,24 @@ function App() {
         assigneesByAreaAndSprint[completionSprint][area] = new Set();
       }
 
+      // Initialize ticket count by assignee tracking
+      if (!ticketCountByAssigneeSprintArea[completionSprint]) {
+        ticketCountByAssigneeSprintArea[completionSprint] = {};
+      }
+      if (!ticketCountByAssigneeSprintArea[completionSprint][area]) {
+        ticketCountByAssigneeSprintArea[completionSprint][area] = {};
+      }
+
       // Add assignee to tracking if available
       if (assignee) {
         assigneesByAreaAndSprint[completionSprint][area].add(assignee);
+        // Track ticket count for this assignee
+        if (
+          !ticketCountByAssigneeSprintArea[completionSprint][area][assignee]
+        ) {
+          ticketCountByAssigneeSprintArea[completionSprint][area][assignee] = 0;
+        }
+        ticketCountByAssigneeSprintArea[completionSprint][area][assignee] += 1;
       }
 
       // Initialize area data if needed (for both points and tickets)
@@ -342,39 +361,26 @@ function App() {
       assigneesByArea[area] = Array.from(assigneesByArea[area]);
     });
 
-    // Calculate averages
-    const sprintCount = chartData.length;
-    const averageVelocity =
-      sprintCount > 0
-        ? chartData.reduce((sum, sprint) => sum + sprint.total, 0) / sprintCount
-        : 0;
-
-    const averageByArea = {};
-    const ticketCountByArea = {};
-    engineeringAreas.forEach((area) => {
-      averageByArea[area] =
-        sprintCount > 0
-          ? chartData.reduce((sum, sprint) => sum + (sprint[area] || 0), 0) /
-            sprintCount
-          : 0;
-
-      ticketCountByArea[area] =
-        sprintCount > 0
-          ? chartData.reduce(
-              (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
-              0
-            )
-          : 0;
-    });
-
     return {
       chartData,
-      averageVelocity,
-      averageByArea,
+      averageVelocity:
+        chartData.length > 0
+          ? chartData.reduce((sum, sprint) => sum + sprint.total, 0) /
+            chartData.length
+          : 0,
       engineeringAreas: Array.from(engineeringAreas),
-      ticketCountByArea,
+      ticketCountByArea: Object.fromEntries(
+        Array.from(engineeringAreas).map((area) => [
+          area,
+          Object.values(ticketCountBySprintAndArea).reduce(
+            (sum, sprint) => sum + (sprint.byArea[area] || 0),
+            0
+          ),
+        ])
+      ),
       assigneesByAreaAndSprint,
       assigneesByArea,
+      ticketCountByAssigneeSprintArea,
     };
   };
 
@@ -464,26 +470,58 @@ function App() {
       };
 
     // Calculate the actual sprint numbers from the percentage range
-    const minPercentage = sprintRange[0];
-    const maxPercentage = sprintRange[1];
-
     const sprintMin = Math.floor(
       sprintNumbers[0] +
-        (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
-          (minPercentage / 100)
+        ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+          sprintRange[0]) /
+          100
     );
 
     const sprintMax = Math.ceil(
       sprintNumbers[0] +
-        (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
-          (maxPercentage / 100)
+        ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+          sprintRange[1]) /
+          100
     );
 
     // Filter data based on sprint range
-    const filteredChartData = data.chartData.filter((sprint) => {
+    let filteredChartData = data.chartData.filter((sprint) => {
       const sprintNum = getSprintNumber(sprint.sprint);
       return sprintNum >= sprintMin && sprintNum <= sprintMax;
     });
+
+    // If an assignee is selected, filter the data further
+    if (selectedAssignee) {
+      filteredChartData = filteredChartData.map((sprint) => {
+        const filteredSprint = { sprint: sprint.sprint };
+
+        // For each area, check if the assignee contributed in this sprint
+        data.engineeringAreas.forEach((area) => {
+          const assigneeTickets =
+            data.ticketCountByAssigneeSprintArea[sprint.sprint]?.[area]?.[
+              selectedAssignee
+            ] || 0;
+          filteredSprint[area] = sprint[area] || 0;
+          filteredSprint[`${area}Tickets`] = assigneeTickets;
+        });
+
+        // Calculate totals for this sprint
+        filteredSprint.total = Object.entries(filteredSprint)
+          .filter(
+            ([key, val]) =>
+              typeof val === "number" &&
+              !key.includes("Tickets") &&
+              key !== "sprint"
+          )
+          .reduce((sum, [_, val]) => sum + val, 0);
+
+        filteredSprint.totalTickets = Object.entries(filteredSprint)
+          .filter(([key]) => key.includes("Tickets"))
+          .reduce((sum, [_, val]) => sum + (val || 0), 0);
+
+        return filteredSprint;
+      });
+    }
 
     // Get the filtered sprint names
     const filteredSprintNames = filteredChartData.map((item) => item.sprint);
@@ -500,7 +538,10 @@ function App() {
       if (sprintData) {
         Object.entries(sprintData).forEach(([area, assignees]) => {
           assignees.forEach((assignee) => {
-            filteredAssigneesByArea[area].add(assignee);
+            // If an assignee is selected, only include them
+            if (!selectedAssignee || assignee === selectedAssignee) {
+              filteredAssigneesByArea[area].add(assignee);
+            }
           });
         });
       }
@@ -541,10 +582,19 @@ function App() {
         ) / filteredChartData.length;
 
       // Calculate total tickets for this area
-      ticketCountByArea[area] = filteredChartData.reduce(
-        (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
-        0
-      );
+      if (selectedAssignee) {
+        // For selected assignee, sum their tickets in this area
+        ticketCountByArea[area] = filteredChartData.reduce(
+          (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
+          0
+        );
+      } else {
+        // For all assignees, use the original ticket counts
+        ticketCountByArea[area] = filteredChartData.reduce(
+          (sum, sprint) => sum + (sprint[`${area}Tickets`] || 0),
+          0
+        );
+      }
     });
 
     return {
@@ -581,23 +631,51 @@ function App() {
           : Array.from(selectedAreas);
 
         areasToInclude.forEach((area) => {
-          // Just use the area name directly for ticket counts in tickets mode
-          ticketSprint[area] = sprint[`${area}Tickets`] || 0;
+          if (selectedAssignee) {
+            // Use the assignee's specific ticket count for this area and sprint
+            ticketSprint[area] =
+              data.ticketCountByAssigneeSprintArea[sprint.sprint]?.[area]?.[
+                selectedAssignee
+              ] || 0;
+          } else {
+            // Use the total ticket count for this area
+            ticketSprint[area] = sprint[`${area}Tickets`] || 0;
+          }
         });
 
         return ticketSprint;
       });
     } else {
-      // Points mode
-      return selectedAreas.has("overall")
-        ? dataToFilter
-        : dataToFilter.map((sprint) => {
-            const filteredSprint = { sprint: sprint.sprint };
-            selectedAreas.forEach((area) => {
-              filteredSprint[area] = sprint[area] || 0;
-            });
-            return filteredSprint;
-          });
+      // Points mode - similar logic for story points
+      return dataToFilter.map((sprint) => {
+        const filteredSprint = { sprint: sprint.sprint };
+        const areasToInclude = selectedAreas.has("overall")
+          ? data.engineeringAreas
+          : Array.from(selectedAreas);
+
+        areasToInclude.forEach((area) => {
+          if (selectedAssignee) {
+            // For points mode with selected assignee, we need to scale the points
+            // based on the proportion of tickets they contributed
+            const totalTickets = sprint[`${area}Tickets`] || 0;
+            const assigneeTickets =
+              data.ticketCountByAssigneeSprintArea[sprint.sprint]?.[area]?.[
+                selectedAssignee
+              ] || 0;
+            if (totalTickets > 0) {
+              // Scale the points proportionally to their contribution
+              filteredSprint[area] =
+                (sprint[area] || 0) * (assigneeTickets / totalTickets);
+            } else {
+              filteredSprint[area] = 0;
+            }
+          } else {
+            filteredSprint[area] = sprint[area] || 0;
+          }
+        });
+
+        return filteredSprint;
+      });
     }
   };
 
@@ -633,8 +711,9 @@ function App() {
     sprintNumbers.length > 0
       ? Math.floor(
           sprintNumbers[0] +
-            (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
-              (sprintRange[0] / 100)
+            ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+              sprintRange[0]) /
+              100
         )
       : 0;
 
@@ -642,8 +721,9 @@ function App() {
     sprintNumbers.length > 0
       ? Math.ceil(
           sprintNumbers[0] +
-            (sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
-              (sprintRange[1] / 100)
+            ((sprintNumbers[sprintNumbers.length - 1] - sprintNumbers[0]) *
+              sprintRange[1]) /
+              100
         )
       : 0;
 
@@ -734,6 +814,30 @@ function App() {
     const remainingAssignees = assignees.slice(maxDisplay);
     const remainingCount = totalAssignees - maxDisplay;
 
+    const handleAssigneeClick = (assignee) => {
+      if (selectedAssignee === assignee) {
+        setSelectedAssignee(null);
+        setSelectedAreas(new Set(["overall"])); // Reset to overall view when deselecting
+      } else {
+        setSelectedAssignee(assignee);
+        // Find all areas where this assignee has contributed
+        const contributedAreas = new Set();
+        Object.entries(data.ticketCountByAssigneeSprintArea).forEach(
+          ([sprint, sprintData]) => {
+            Object.entries(sprintData).forEach(([area, assignees]) => {
+              if (assignees[assignee] && assignees[assignee] > 0) {
+                contributedAreas.add(area);
+              }
+            });
+          }
+        );
+        // Set the selected areas to include all areas where the assignee has contributed
+        if (contributedAreas.size > 0) {
+          setSelectedAreas(contributedAreas);
+        }
+      }
+    };
+
     // Function to get the initial from name
     const getInitial = (name) => {
       return name ? name.trim().charAt(0).toUpperCase() : "?";
@@ -761,49 +865,36 @@ function App() {
     };
 
     // Custom tooltip component
-    const Tooltip = ({ content, children }) => {
+    const Tooltip = ({ content, children, isSelected }) => {
       const [showTooltip, setShowTooltip] = useState(false);
-      const [tooltipPosition, setTooltipPosition] = useState({
-        top: 0,
-        left: 0,
-      });
-      const childRef = useRef(null);
-
-      // Calculate position when tooltip visibility changes
-      useEffect(() => {
-        if (showTooltip && childRef.current) {
-          const rect = childRef.current.getBoundingClientRect();
-          setTooltipPosition({
-            top: rect.top - 5, // Position above the avatar
-            left: rect.left + rect.width / 2,
-          });
-        }
-      }, [showTooltip]);
 
       return (
         <div
-          className="relative group"
+          className="relative inline-block"
           onMouseEnter={() => setShowTooltip(true)}
           onMouseLeave={() => setShowTooltip(false)}
           onFocus={() => setShowTooltip(true)}
           onBlur={() => setShowTooltip(false)}
-          ref={childRef}
         >
           {children}
 
           {showTooltip && (
             <div
-              className="fixed z-[999] transform -translate-x-1/2 -translate-y-full"
+              className="fixed transform -translate-x-1/2 z-[9999]"
               style={{
-                top: `${tooltipPosition.top}px`,
-                left: `${tooltipPosition.left}px`,
-                marginBottom: "10px",
+                left:
+                  children?.ref?.current?.getBoundingClientRect().left +
+                  (children?.ref?.current?.offsetWidth || 0) / 2,
+                top: children?.ref?.current?.getBoundingClientRect().top - 8,
               }}
             >
-              <div className="bg-gray-900 text-white text-xs rounded py-1 px-2 shadow-lg border border-gray-700 whitespace-nowrap">
+              <div className="bg-gray-800 text-white text-xs rounded py-1 px-2 shadow-lg border border-gray-700 whitespace-nowrap">
                 {content}
+                {!isSelected && (
+                  <span className="text-gray-400"> (click to filter)</span>
+                )}
               </div>
-              <div className="w-2 h-2 bg-gray-900 transform rotate-45 absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-r border-b border-gray-700"></div>
+              <div className="w-2 h-2 bg-gray-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2 border-r border-b border-gray-700"></div>
             </div>
           )}
         </div>
@@ -813,31 +904,16 @@ function App() {
     // Multiple names tooltip component
     const MultiTooltip = ({ names }) => {
       const [showTooltip, setShowTooltip] = useState(false);
-      const [tooltipPosition, setTooltipPosition] = useState({
-        top: 0,
-        left: 0,
-      });
-      const childRef = useRef(null);
-
-      // Calculate position when tooltip visibility changes
-      useEffect(() => {
-        if (showTooltip && childRef.current) {
-          const rect = childRef.current.getBoundingClientRect();
-          setTooltipPosition({
-            top: rect.bottom + 5, // Position below the +X badge
-            left: rect.left,
-          });
-        }
-      }, [showTooltip]);
+      const tooltipRef = useRef(null);
 
       return (
         <div
-          className="relative"
+          className="relative inline-block"
           onMouseEnter={() => setShowTooltip(true)}
           onMouseLeave={() => setShowTooltip(false)}
           onFocus={() => setShowTooltip(true)}
           onBlur={() => setShowTooltip(false)}
-          ref={childRef}
+          ref={tooltipRef}
         >
           <div className="relative z-0 inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-gray-800 bg-gray-600">
             <span className="text-xs font-medium text-white">
@@ -847,23 +923,49 @@ function App() {
 
           {showTooltip && (
             <div
-              className="fixed z-[999]"
+              className="fixed transform -translate-x-1/2 z-[9999]"
               style={{
-                top: `${tooltipPosition.top}px`,
-                left: `${tooltipPosition.left}px`,
+                left:
+                  tooltipRef.current?.getBoundingClientRect().left +
+                  (tooltipRef.current?.offsetWidth || 0) / 2,
+                top: tooltipRef.current?.getBoundingClientRect().top - 8,
               }}
             >
-              <div className="bg-gray-900 text-white text-xs rounded py-2 px-3 shadow-lg border border-gray-700">
-                <p className="font-semibold mb-2">Other contributors:</p>
-                <ul className="space-y-1.5 max-h-[300px] overflow-y-auto">
+              <div className="bg-gray-800 text-white text-xs rounded py-2 px-3 shadow-lg border border-gray-700 min-w-[200px]">
+                <p className="font-semibold mb-1">Other contributors:</p>
+                <ul className="space-y-1">
                   {names.map((name, idx) => (
-                    <li key={idx} className="whitespace-nowrap">
-                      {name}
+                    <li
+                      key={idx}
+                      className="flex items-center cursor-pointer hover:bg-gray-700 px-2 py-1 rounded"
+                      onClick={() => handleAssigneeClick(name)}
+                    >
+                      <div
+                        className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center mr-1.5 ${getAvatarColor(
+                          name
+                        )}`}
+                      >
+                        <span className="text-[10px]">{getInitial(name)}</span>
+                      </div>
+                      <span className="truncate">{name}</span>
+                      {selectedAssignee === name && (
+                        <svg
+                          className="flex-shrink-0 w-3 h-3 ml-1 text-blue-500"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      )}
                     </li>
                   ))}
                 </ul>
               </div>
-              <div className="w-2 h-2 bg-gray-900 transform rotate-45 absolute -top-1 left-4 border-l border-t border-gray-700"></div>
+              <div className="w-2 h-2 bg-gray-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2 border-r border-b border-gray-700"></div>
             </div>
           )}
         </div>
@@ -871,18 +973,31 @@ function App() {
     };
 
     return (
-      <div className="flex flex-wrap -space-x-2 mt-3">
+      <div className="flex flex-wrap -space-x-2 mt-3 relative">
         {displayedAssignees.map((assignee, index) => (
-          <Tooltip key={index} content={assignee}>
+          <Tooltip
+            key={index}
+            content={assignee}
+            isSelected={selectedAssignee === assignee}
+          >
             <div
-              className={`relative z-10 inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-gray-800 ${getAvatarColor(
-                assignee
-              )} transition-transform hover:scale-110`}
+              onClick={() => handleAssigneeClick(assignee)}
+              className={`relative inline-flex items-center justify-center w-7 h-7 rounded-full ring-2 
+                ${
+                  selectedAssignee === assignee
+                    ? "ring-blue-500"
+                    : "ring-gray-800"
+                } 
+                ${getAvatarColor(assignee)} 
+                transition-transform hover:scale-110 cursor-pointer`}
               style={{ zIndex: 20 - index }}
             >
               <span className="text-xs font-medium text-white">
                 {getInitial(assignee)}
               </span>
+              {selectedAssignee === assignee && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-gray-800" />
+              )}
             </div>
           </Tooltip>
         ))}
